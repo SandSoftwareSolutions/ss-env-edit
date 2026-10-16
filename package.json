@@ -1,0 +1,43 @@
+{
+  "name": "@sandsoftwaresolutions/env-edit",
+  "version": "0.1.0",
+  "description": "Edit .env files from code and keep comments, order, quotes and line endings. Quoting done right.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "dotenv",
+    "env",
+    "config",
+    "edit"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SandSoftwareSolutions/ss-env-edit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SandSoftwareSolutions/ss-env-edit/issues"
+  },
+  "homepage": "https://github.com/SandSoftwareSolutions/ss-env-edit#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
