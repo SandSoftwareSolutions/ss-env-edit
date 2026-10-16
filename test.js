@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { parseEnv as nodeParseEnv } from "node:util";
 
 import { compareEnv, formatValue, parseEnv, readEnv, removeKey, setValue, setValues } from "./src/index.js";
 
@@ -58,15 +59,44 @@ test("setValue adds new variables at the end, with an optional comment", () => {
   assert.equal(setValue("A=1", "B", "2"), "A=1\nB=2\n");
 });
 
-test("values are quoted when needed and read back exactly", () => {
-  const nasty = ["plain", "with space", "has # hash", 'say "hi"', "back\\slash", "line\nbreak", " lead", "trail ", "$HOME", "a=b", "", "ünï ✓", "tab\there"];
+test("what we write is read back exactly, by us AND by Node's own parser", () => {
+  const nasty = [
+    "plain", "with space", "has # hash", 'say "hi"', "back\\slash", "a\\nb", "line\nbreak", "multi\nline\nvalue", " lead", "trail ", "$HOME", "${HOME}", "a=b", "=starts",
+    "", "ünï ✓", "tab\there", "it's", "it's \"quoted\"", "back`tick", "mix \"q\" and $x and \\n", "C:\\Users\\kaj", "\\", "'", "-----BEGIN KEY-----\nabc\n-----END KEY-----"
+  ];
   for (const value of nasty) {
     const text = setValue("", "K", value);
-    assert.equal(readEnv(text).K, value, JSON.stringify(value));
+    assert.equal(readEnv(text).K, value, `ours: ${JSON.stringify(value)} written as ${JSON.stringify(text)}`);
+    assert.equal(nodeParseEnv(text).K ?? "", value, `node: ${JSON.stringify(value)} written as ${JSON.stringify(text)}`);
+    const second = setValue("A=1\n# note\nexport K=old # c\nZ=2\n", "K", value);
+    assert.equal(nodeParseEnv(second).K ?? "", value, `node (edit in place): ${JSON.stringify(value)}`);
+    assert.equal(nodeParseEnv(second).Z, "2");
   }
+});
+
+test("values that no reader can agree on are refused instead of written wrongly", () => {
+  assert.throws(() => formatValue("both ' and ` and \" here"), RangeError);
+  assert.throws(() => formatValue("carriage\rreturn"), RangeError);
+  assert.equal(formatValue("both ' and ` only"), '"both \' and ` only"');
+  assert.equal(nodeParseEnv(`K=${formatValue("both ' and ` and\nnewline")}\n`).K, "both ' and ` and\nnewline");
   assert.equal(formatValue("simple-value_1.2"), "simple-value_1.2");
-  assert.equal(formatValue("two words"), '"two words"');
   assert.equal(formatValue(42), "42");
+});
+
+test("we read files the way dotenv and Node do", () => {
+  const text = [
+    "A=\"line1\\nline2\"", "B='literal \\n stays'", "C=`both ' and \"`", 'D="has \\"escaped\\" quotes"', "E=\"back\\\\slash\"", "F=plain # comment", "G='single' # comment"
+  ].join("\n") + "\n";
+  const ours = readEnv(text);
+  assert.equal(ours.A, "line1\nline2");
+  assert.equal(ours.B, "literal \\n stays");
+  assert.equal(ours.C, "both ' and \"");
+  assert.equal(ours.D, 'has \\"escaped\\" quotes'); // dotenv keeps the backslashes; only \n and \r are expanded
+  assert.equal(ours.E, "back\\\\slash");
+  assert.equal(ours.F, "plain");
+  assert.equal(ours.G, "single");
+  const node = nodeParseEnv(text);
+  for (const key of ["A", "B", "C", "F", "G"]) assert.equal(ours[key], node[key], key);
 });
 
 test("removeKey removes all lines of that key", () => {
@@ -82,7 +112,7 @@ test("Windows line endings and a missing final newline are kept", () => {
 });
 
 test("setValues sets several", () => {
-  assert.equal(setValues("A=1\n", { A: "2", B: "x y" }), 'A=2\nB="x y"\n');
+  assert.equal(setValues("A=1\n", { A: "2", B: "x y" }), "A=2\nB='x y'\n");
 });
 
 test("lines that are not valid are kept and reported, never dropped", () => {

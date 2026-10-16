@@ -38,13 +38,16 @@ compareEnv(readFileSync(".env.example", "utf8"), text);
 - an inline comment (`PORT=3000  # dev only`) stays after the new value
 - Windows (`\r\n`) or Unix line endings, and whether the file ended with a newline
 
-## What it understands
+## What it understands (and how it writes)
 
-- `KEY=bare value`, `KEY="double quoted with \n escapes"` (also over several lines, for keys and certificates), `KEY='single quoted, literal'`, `export KEY=value`.
-- ` #` starts a comment after a bare value; a `#` without a space before it is part of the value (`COLOR=#ff0000`).
-- When a key appears twice the last one wins, like in dotenv.
-- Variables are **not expanded** (`$HOME` stays text).
-- Values that need it (spaces, `#`, quotes, `$`, backslashes, new lines, leading or trailing spaces) are written in double quotes with the right escapes and read back exactly.
+It reads and writes the way the real readers do (dotenv, Node's `util.parseEnv`, Next.js), because a `.env` file is only as good as what *they* make of it. The round trip is tested against Node's own parser.
+
+- **Bare values:** `KEY=value`; ` #` starts a comment after them, but a `#` without a space before it is part of the value (`COLOR=#ff0000`).
+- **Single quotes** `KEY='as is'`: completely literal. Quotes, backslashes, `$`, `#` and even line breaks stay exactly as written. **This is what `setValue` writes** when a value needs quoting.
+- **Backticks** `` KEY=`it's` ``: literal too; used for a value that contains a single quote.
+- **Double quotes** `KEY="line one\nline two"`: only `\n` (and `\r`) become a line break; every other backslash stays as it is, and `\"` does not end the value (as in dotenv). Used only for the rare value that contains both `'` and a backtick.
+- A value that no reader can agree on (a carriage return, or both quote kinds plus a quote, backslash or `$`) is **refused with an error** instead of being written wrong.
+- `export KEY=value` is understood and kept. When a key appears twice the last one wins, like in dotenv. Variables are **not expanded** (`$HOME` stays text).
 - A line that is not valid is kept as it is and listed in `parseEnv(text).problems`; nothing is thrown away.
 
 `parseEnv(text)` gives you the full list of entries (with their raw text) if you need more than the values.

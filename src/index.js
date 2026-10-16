@@ -1,7 +1,9 @@
 const KEY = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 
+// The real readers (dotenv, Node's util.parseEnv, Next.js) agree on very little inside double quotes: only \n (and \r) become a
+// line break; every other backslash stays as it is. Single quotes and backticks are completely literal. So that is what we read.
 function unescapeDouble(inner) {
-  return inner.replace(/\\(.)/gs, (_, c) => ({ n: "\n", r: "\r", t: "\t", '"': '"', "\\": "\\", $: "$" })[c] ?? `\\${c}`);
+  return inner.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
 }
 
 /**
@@ -40,7 +42,7 @@ export function parseEnv(text) {
     let raw = line;
     let value;
     let quote = null;
-    if (rest.startsWith('"') || rest.startsWith("'")) {
+    if (rest.startsWith('"') || rest.startsWith("'") || rest.startsWith("`")) {
       quote = rest[0];
       let body = rest.slice(1);
       let end = findClosing(body, quote);
@@ -68,7 +70,7 @@ export function parseEnv(text) {
 
 function findClosing(body, quote) {
   for (let i = 0; i < body.length; i++) {
-    if (quote === '"' && body[i] === "\\") i++;
+    if (quote === '"' && body[i] === "\\" && body[i + 1] === '"') i++; // dotenv: \" does not end a double-quoted value
     else if (body[i] === quote) return i;
   }
   return -1;
@@ -82,12 +84,21 @@ export function readEnv(text) {
   return parseEnv(text).toObject();
 }
 
-/** How a value is written: bare when that is safe, otherwise in double quotes with `\\`, `\"` and `\n` escaped. */
+/**
+ * How a value is written so that the real readers all agree (dotenv, Node's `util.parseEnv`, Next.js): bare when that is safe,
+ * otherwise in **single quotes**, which are literal everywhere (quotes, backslashes, `$`, `#` and even line breaks stay as they are).
+ * A value with a single quote goes in backticks. A value with both a `'` and a backtick can only be written with double quotes,
+ * where just `\n` is understood, so it is accepted only if that is enough; otherwise a RangeError tells you to avoid it.
+ */
 export function formatValue(value) {
   const text = String(value);
   if (text === "") return "";
-  if (/^[A-Za-z0-9_./:@%+,=-]+$/.test(text) && !/^[=]/.test(text)) return text;
-  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r/g, "\\r").replace(/\n/g, "\\n").replace(/\$/g, "\\$")}"`;
+  if (/^[A-Za-z0-9_./:@%+,=-]+$/.test(text) && !text.startsWith("=")) return text;
+  if (/\r/.test(text)) throw new RangeError("env-edit: a value with a carriage return (\\r) cannot be written so that every .env reader agrees");
+  if (!text.includes("'")) return `'${text}'`;
+  if (!text.includes("`")) return `\`${text}\``;
+  if (!/["\\$]/.test(text)) return `"${text.replace(/\n/g, "\\n")}"`;
+  throw new RangeError("env-edit: a value with both a ' and a backtick (and a quote, backslash or $) cannot be written so that every .env reader agrees; avoid it or write the line by hand");
 }
 
 function emit(parsed) {
@@ -113,10 +124,10 @@ export function setValue(text, key, value, { comment } = {}) {
     const prefix = `${/^\s*/.exec(existing.raw)[0]}${existing.exported ? "export " : ""}${key}=`;
     existing.raw = `${prefix}${formatted}${inline ? ` ${inline[1]}` : ""}`;
     existing.value = String(value);
-    existing.quote = formatted.startsWith('"') ? '"' : null;
+    existing.quote = /^['"`]/.test(formatted) ? formatted[0] : null;
   } else {
     if (comment) parsed.entries.push({ type: "comment", raw: `# ${comment}` });
-    parsed.entries.push({ type: "var", raw: `${key}=${formatted}`, key, value: String(value), exported: false, quote: formatted.startsWith('"') ? '"' : null });
+    parsed.entries.push({ type: "var", raw: `${key}=${formatted}`, key, value: String(value), exported: false, quote: /^['"`]/.test(formatted) ? formatted[0] : null });
     parsed.trailingNewline = true;
   }
   return emit(parsed);
