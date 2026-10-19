@@ -29,10 +29,24 @@ test("reads bare, quoted, single-quoted, exported, empty and inline-commented va
   assert.deepEqual(parsed.problems, []);
 });
 
-test("a # without a space before it is part of the value", () => {
-  assert.equal(readEnv("COLOR=#ff0000\nURL=http://x/#anchor").COLOR, "#ff0000");
-  assert.equal(readEnv("URL=http://x/#anchor").URL, "http://x/#anchor");
+// Changed expectation (it said that COLOR=#ff0000 reads as "#ff0000" and that the # of a URL stays in the value). dotenv 17.4.1 and
+// Node 24's util.parseEnv both read an unquoted value only up to the first #, with or without a space before it.
+test("in an unquoted value a # starts a comment, as in dotenv and Node", () => {
+  assert.equal(readEnv("COLOR=#ff0000").COLOR, "");
+  assert.equal(readEnv("URL=http://x/#anchor").URL, "http://x/");
   assert.equal(readEnv("A=1 # comment").A, "1");
+  assert.equal(readEnv("A= # comment").A, "");
+  assert.equal(readEnv("A='#ff0000'\nB=\"x # y\" # z").A, "#ff0000");
+  for (const text of ["COLOR=#ff0000", "URL=http://x/#anchor", "A=1 # comment", "A= # c", "A=b#c", "A='q' # c", "A=\"q\"#c"]) {
+    assert.deepEqual(readEnv(text), { ...nodeParseEnv(text) }, text);
+  }
+});
+
+test("a comment that contains the quote character of the value is kept when the value changes", () => {
+  assert.equal(setValue('A="x" # say "hi"\nB=1\n', "A", "y"), 'A=y # say "hi"\nB=1\n');
+  assert.equal(setValue("A='x' # it's here\n", "A", "y"), "A=y # it's here\n");
+  assert.equal(setValue("A=old#note\n", "A", "new"), "A=new #note\n");
+  assert.equal(setValue("A= # only a comment\n", "A", "v"), "A=v # only a comment\n");
 });
 
 test("multi-line double-quoted values", () => {
@@ -134,4 +148,27 @@ test("bad input", () => {
   assert.throws(() => setValue("", "1ABC", "x"), TypeError);
   assert.throws(() => parseEnv(5), TypeError);
   assert.throws(() => removeKey("", ""), TypeError);
+});
+
+test("editing one variable leaves every other byte alone, also line breaks inside quoted values and mixed line breaks", () => {
+  const crlfValue = "A='x\r\ny'\r\nB=2\r\n";
+  assert.equal(setValue(crlfValue, "B", "3"), "A='x\r\ny'\r\nB=3\r\n");
+  assert.equal(removeKey(crlfValue, "B"), "A='x\r\ny'\r\n");
+  const mixed = "# one\nA=1\r\nB=2\nC=3\r\n";
+  assert.equal(setValue(mixed, "B", "9"), "# one\nA=1\r\nB=9\nC=3\r\n");
+  assert.equal(removeKey(mixed, "A"), "# one\nB=2\nC=3\r\n");
+  assert.equal(setValue("A=1\r\nB=2", "C", "3"), "A=1\r\nB=2\r\nC=3\r\n", "a file without a final line break gets one before the new line");
+  assert.equal(removeKey("A=1\nB=2", "B"), "A=1", "no final line break stays that way");
+  assert.equal(removeKey("A=1\nB=2\n", "B"), "A=1\n");
+});
+
+test("entries know the line where they start", () => {
+  const { entries } = parseEnv("A='x\ny'\n# c\n\nB=2\nnot valid\nC=3");
+  assert.deepEqual(entries.map((e) => [e.type, e.line]), [["var", 1], ["comment", 3], ["blank", 4], ["var", 5], ["other", 6], ["var", 7]]);
+});
+
+test("compareEnv does not mistake names that every object has for variables", () => {
+  assert.deepEqual(compareEnv("constructor=1\ntoString=2\n", "A=1"), { missing: ["constructor", "toString"], extra: ["A"], empty: [] });
+  assert.deepEqual(compareEnv("A=1", "constructor=1\nhasOwnProperty="), { missing: ["A"], extra: ["constructor", "hasOwnProperty"], empty: [] });
+  assert.deepEqual(compareEnv("valueOf=1", "valueOf="), { missing: [], extra: [], empty: ["valueOf"] });
 });

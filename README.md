@@ -36,18 +36,19 @@ compareEnv(readFileSync(".env.example", "utf8"), text);
 - comments and blank lines, and the order of variables
 - the `export ` prefix and the indentation of the line you change
 - an inline comment (`PORT=3000  # dev only`) stays after the new value
-- Windows (`\r\n`) or Unix line endings, and whether the file ended with a newline
+- Windows (`\r\n`) or Unix line endings, per line (a file that mixes them keeps each line's own break, also inside a quoted multi-line value), and whether the file ended with a newline
 
 ## What it understands (and how it writes)
 
 It reads and writes the way the real readers do (dotenv, Node's `util.parseEnv`, Next.js), because a `.env` file is only as good as what *they* make of it. The round trip is tested against Node's own parser.
 
-- **Bare values:** `KEY=value`; ` #` starts a comment after them, but a `#` without a space before it is part of the value (`COLOR=#ff0000`).
+- **Bare values:** `KEY=value`; a `#` anywhere in an unquoted value starts a comment, with or without a space before it (`A=b#c` is `b`, `COLOR=#ff0000` is empty), exactly as dotenv 17 and Node 24 read it. Put a value with a `#` in quotes. `setValue` does that for you.
 - **Single quotes** `KEY='as is'`: completely literal. Quotes, backslashes, `$`, `#` and even line breaks stay exactly as written. **This is what `setValue` writes** when a value needs quoting.
 - **Backticks** `` KEY=`it's` ``: literal too; used for a value that contains a single quote.
 - **Double quotes** `KEY="line one\nline two"`: only `\n` (and `\r`) become a line break; every other backslash stays as it is, and `\"` does not end the value (as in dotenv). Used only for the rare value that contains both `'` and a backtick.
 - A value that no reader can agree on (a carriage return, or both quote kinds plus a quote, backslash or `$`) is **refused with an error** instead of being written wrong.
 - `export KEY=value` is understood and kept. When a key appears twice the last one wins, like in dotenv. Variables are **not expanded** (`$HOME` stays text).
+- Where the real readers disagree with each other we follow dotenv: `\"` inside double quotes does not end the value (Node ends it there), and `export KEY=` with an empty value is the variable `KEY` (Node reads it as a variable named `export KEY`). Node also joins `KEY= ` (a space after the equals sign and nothing else) with the next line; we read it as empty, as dotenv does. Files written by `setValue` never contain these forms.
 - A line that is not valid is kept as it is and listed in `parseEnv(text).problems`; nothing is thrown away.
 
 `parseEnv(text)` gives you the full list of entries (with their raw text) if you need more than the values.

@@ -6,6 +6,10 @@ export interface EnvEntry {
   value?: string;
   exported?: boolean;
   quote?: '"' | "'" | null;
+  /** The inline comment from the `#` on (`# note`), when there is one. */
+  comment?: string;
+  /** The line break after it ("\n", "\r\n"), or "" for the last line of a file that does not end with one. Missing on lines added by `setValue`. */
+  end?: string;
   line: number;
 }
 
