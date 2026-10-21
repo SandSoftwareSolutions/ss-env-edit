@@ -10,6 +10,8 @@ Change a `.env` file from code without wrecking it: comments, order, blank lines
 npm install @sandsoftwaresolutions/env-edit
 ```
 
+Works with `import` and `require()`, and ships TypeScript types for both.
+
 ## Usage
 
 ```js
